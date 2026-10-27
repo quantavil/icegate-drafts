@@ -1,0 +1,16 @@
+const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
+const ctx={console}; vm.createContext(ctx); vm.runInContext(fs.readFileSync(__dirname+'/Code.gs','utf8'),ctx);
+const doc={getName:()=> '123456701012026INMBD6SB35.pdf'};
+const msg={getAttachments:()=>[doc],getId:()=> 'gate-message'};
+const info={bill:'1234567',date:'01012026',type:'Gatepass'};
+const saved={'bill-1234567-01012026':JSON.stringify({id:'thread',parent:'parent'}),'icegate-thread-thread':JSON.stringify({draft:'sent-draft',parent:'parent',items:[{id:'leo',name:'leo.pdf',bill:'1234567'}],hash:'old'})};
+const props={getProperty:k=>saved[k]||null,setProperty:(k,v)=>{saved[k]=v}};
+let created=[];
+ctx.rawDraft_=id=>id==='sent-draft'?null:{message:{threadId:'thread',raw:'new'}};
+ctx.unsentFiles_=(_,files)=>files.map(()=>true);
+ctx.newDraft_=(_,items)=>{created=items;return 'new-draft'};
+ctx.hash_=()=>'hash';
+ctx.handleMessage_(msg,info,props);
+assert.equal(created.length,1); assert.equal(created[0].id,'gate-message');
+assert.equal(JSON.parse(saved['icegate-thread-thread']).draft,'new-draft');
+console.log('A sent draft is followed by a new draft containing only the newly arrived document');

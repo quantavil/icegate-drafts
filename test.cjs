@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const {parseSubject, chooseThread, activeHour} = require('./rules.cjs');
+assert.deepEqual(parseSubject('Electronic Final LEO copy of SB for Shipping Bill No1234567Dt01012026'), {bill:'1234567',date:'01012026',type:'LEO'});
+assert.deepEqual(parseSubject('Electronic eGatepass copy of SB for Shipping Bill No1234567Dt01012026'), {bill:'1234567',date:'01012026',type:'Gatepass'});
+assert.deepEqual(parseSubject('Electronic Final  LEO copy of SB   for Shipping Bill   No1234567Dt01012026'), {bill:'1234567',date:'01012026',type:'LEO'});
+assert.equal(parseSubject('Electronic First copy of SB for Shipping Bill No1234567Dt01012026'), null);
+assert.equal(chooseThread([{id:'a',count:2,time:4},{id:'b',count:5,time:1},{id:'c',count:5,time:2}]).id,'c');
+assert.equal(chooseThread([]), null);
+assert.equal(activeHour(10),true); assert.equal(activeHour(21),true); assert.equal(activeHour(22),false); assert.equal(activeHour(9),false);
+console.log('Rules passed');
