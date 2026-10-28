@@ -179,6 +179,7 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
     console.log('Already sent in customer conversation: SB ' + info.bill + ' ' + info.type);
     return;
   }
+  let created = false;
   if (state) {
     const keptPrior = priorItems.map((item,i) => ({item,file:priorFiles[i]})).filter((_,i) => keep[i]);
     const added = incoming.filter(x => !keptPrior.some(y => x.item.name === y.item.name && x.item.hash === (y.item.hash || fileHash_(y.file))));
@@ -205,11 +206,15 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
     current = rawDraft_(draftId);
     if (!current || current.message.threadId !== found.id) throw new Error('New draft is not in expected thread');
     state = {draft:draftId,items:items,hash:hash_(current.message.raw)};
+    created = true;
   }
   state.updatedAt = Date.now();
   found.updatedAt = state.updatedAt;
   props.setProperty(stateKey, JSON.stringify(state));
   props.setProperty(mappingKey, JSON.stringify(found));
+  if (created) {
+    try { msg.markRead(); } catch (err) { console.error('Could not mark ICEGATE message as read: ' + err.message); }
+  }
   console.log('Prepared ' + info.type + ' for SB ' + info.bill + ' in customer conversation');
 }
 function testPollReadOnly() {
