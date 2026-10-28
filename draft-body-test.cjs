@@ -1,9 +1,13 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
-let body;
-const ctx = {GmailApp:{getThreadById:()=>({getMessages:()=>[{isDraft:()=>false,createDraftReplyAll:text=>{body=text;return {getId:()=> 'draft'};}}]})}};
+let body, options;
+const ctx = {Utilities:{formatDate:()=> '28 Oct 2026, 11:30'},GmailApp:{getThreadById:()=>({getMessages:()=>[{isDraft:()=>false,getFrom:()=> 'Client <client@example.com>',getDate:()=> new Date('2026-10-28T06:00:00Z'),getPlainBody:()=> 'Previous message\nEarlier reply',getBody:()=> '<p>Previous <b>message</b></p><blockquote>Earlier reply</blockquote>',createDraftReplyAll:(text,opts)=>{body=text;options=opts;return {getId:()=> 'draft'};}}]})}};
 vm.createContext(ctx);vm.runInContext(fs.readFileSync(__dirname+'/Code.gs','utf8'),ctx);
 const draft = types => {ctx.newDraft_('thread',types.map(type=>({bill:'1234567',type})),[]);return body;};
 assert.match(draft(['LEO']),/attached the LEO copies/);assert.doesNotMatch(body,/eGatepass/);
 assert.match(draft(['Gatepass']),/attached the eGatepass copies/);assert.doesNotMatch(body,/LEO/);
 assert.match(draft(['LEO','Gatepass']),/attached the LEO and eGatepass copies/);
+assert.match(body, /> Previous message\n> Earlier reply/);
+assert.match(options.htmlBody, /<b>message<\/b>/);
+assert.match(options.htmlBody, /<blockquote>Earlier reply<\/blockquote>/);
+assert.match(options.htmlBody, /Client &lt;client@example.com&gt;/);
 console.log('Draft text matches the attached document types');

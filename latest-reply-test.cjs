@@ -1,8 +1,8 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
 let repliedTo;
-const message = (id, draft = false) => ({isDraft: () => draft, createDraftReplyAll: () => { repliedTo = id; return {getId: () => 'draft'}; }});
+const message = (id, draft = false) => ({isDraft: () => draft, getDate: () => new Date(), getFrom: () => 'customer@example.com', getPlainBody: () => 'Previous', getBody: () => '<p>Previous</p>', createDraftReplyAll: () => { repliedTo = id; return {getId: () => 'draft'}; }});
 const messages = [message('customer'), message('sent'), message('existing-draft', true)];
-const ctx = {GmailApp: {getThreadById: () => ({getMessages: () => messages})}};
+const ctx = {Utilities:{formatDate:()=> 'date'}, GmailApp: {getThreadById: () => ({getMessages: () => messages})}};
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(__dirname + '/Code.gs', 'utf8'), ctx);
 assert.equal(ctx.newDraft_('thread', [{bill: '1234567'}], []), 'draft');
