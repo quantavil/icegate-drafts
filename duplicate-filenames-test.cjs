@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const file=(name,data)=>({getName:()=>name,getBytes:()=>data});
+const first=file('same.pdf','first'), second=file('same.pdf','second');
+const ctx={GmailApp:{getMessageById:()=>({getAttachments:()=>[first,second]})}};
+vm.createContext(ctx);vm.runInContext(fs.readFileSync(__dirname+'/Code.gs','utf8'),ctx);
+ctx.fileHash_=f=>f.getBytes();
+const items=[{id:'m',name:'same.pdf',index:0,hash:'first'},{id:'m',name:'same.pdf',index:1,hash:'second'}];
+assert.deepEqual(Array.from(ctx.attachments_(items),f=>f.getBytes()),['first','second']);
+assert.throws(()=>ctx.attachments_([{id:'m',name:'same.pdf'}]),/ambiguous/);
+assert.throws(()=>ctx.attachments_([{...items[0],hash:'changed'}]),/changed/);
+console.log('Same-name files retain their contents; ambiguous legacy items fail safely');

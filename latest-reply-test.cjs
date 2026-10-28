@@ -1,0 +1,13 @@
+const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
+let repliedTo;
+const message = (id, draft = false) => ({isDraft: () => draft, createDraftReplyAll: () => { repliedTo = id; return {getId: () => 'draft'}; }});
+const messages = [message('customer'), message('sent'), message('existing-draft', true)];
+const ctx = {GmailApp: {getThreadById: () => ({getMessages: () => messages})}};
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(__dirname + '/Code.gs', 'utf8'), ctx);
+assert.equal(ctx.newDraft_('thread', [{bill: '1234567'}], []), 'draft');
+assert.equal(repliedTo, 'sent');
+messages.splice(2, 0, message('new-customer'));
+ctx.newDraft_('thread', [{bill: '1234567'}], []);
+assert.equal(repliedTo, 'new-customer');
+console.log('Draft replies to the latest non-draft message, including after a new message arrives');

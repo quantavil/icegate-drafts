@@ -6,5 +6,5 @@ function parseSubject(subject) {
 function chooseThread(threads) {
   return threads.slice().sort((a,b) => b.count-a.count || b.time-a.time || a.id.localeCompare(b.id))[0] || null;
 }
-function activeHour(hour) { return hour >= 10 && hour < 22; }
+function activeHour(hour) { return hour >= 11 && hour < 22; }
 if (typeof module !== 'undefined') module.exports = {parseSubject, chooseThread, activeHour};

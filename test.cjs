@@ -6,5 +6,5 @@ assert.deepEqual(parseSubject('Electronic Final  LEO copy of SB   for Shipping B
 assert.equal(parseSubject('Electronic First copy of SB for Shipping Bill No1234567Dt01012026'), null);
 assert.equal(chooseThread([{id:'a',count:2,time:4},{id:'b',count:5,time:1},{id:'c',count:5,time:2}]).id,'c');
 assert.equal(chooseThread([]), null);
-assert.equal(activeHour(10),true); assert.equal(activeHour(21),true); assert.equal(activeHour(22),false); assert.equal(activeHour(9),false);
+assert.equal(activeHour(10),false); assert.equal(activeHour(11),true); assert.equal(activeHour(21),true); assert.equal(activeHour(22),false); assert.equal(activeHour(9),false);
 console.log('Rules passed');

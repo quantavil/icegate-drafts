@@ -6,7 +6,7 @@ function parseSubject(subject) {
 function chooseThread(threads) {
   return threads.slice().sort((a,b) => b.count-a.count || b.time-a.time || a.id.localeCompare(b.id))[0] || null;
 }
-function activeHour(hour) { return hour >= 10 && hour < 22; }
+function activeHour(hour) { return hour >= 11 && hour < 22; }
 
 const ICEGATE_SENDER = 'noreply@icegate.gov.in';
 const STATE_PREFIX = 'icegate-thread-';
@@ -54,18 +54,24 @@ function processNewIcegate_() {
     const key = 'done-' + id;
     if (pending[id] && pending[id] > now) continue;
     if (all[key]) { delete pending[id]; continue; }
-    const msg = GmailApp.getMessageById(id);
-    if (!msg) { delete pending[id]; continue; }
-    if (msg.getDate().getTime() < start || !/^\s*(?:[^<]*<)?noreply@icegate\.gov\.in>?\s*$/i.test(msg.getFrom())) { delete pending[id]; continue; }
-    const info = parseSubject(msg.getSubject());
-    if (!info) { delete pending[id]; continue; }
+    let info;
     try {
+      const msg = GmailApp.getMessageById(id);
+      if (msg.getDate().getTime() < start || !/^\s*(?:[^<]*<)?noreply@icegate\.gov\.in>?\s*$/i.test(msg.getFrom())) { delete pending[id]; continue; }
+      info = parseSubject(msg.getSubject());
+      if (!info) { delete pending[id]; continue; }
       handleMessage_(msg, info, props);
       props.setProperty(key, String(now));
       delete pending[id];
     } catch (err) {
+      // A permanently deleted message must not block other pending messages.
+      let missing = false;
+      if (!info) {
+        try { missing = !api_('get', 'messages/' + encodeURIComponent(id) + '?format=minimal', null, true); } catch (_) {}
+      }
+      if (missing) { delete pending[id]; continue; }
       pending[id] = now + 15 * 60 * 1000;
-      console.error('Could not prepare ' + info.type + ' for SB ' + info.bill + ': ' + err.message);
+      console.error('Could not prepare ' + (info ? info.type + ' for SB ' + info.bill : 'ICEGATE message ' + id) + ': ' + err.message);
     }
   }
   props.setProperty('icegate-pending', JSON.stringify(pending));
@@ -88,13 +94,13 @@ function findCustomer_(bill) {
     for (const thread of batch) {
       const msgs = thread.getMessages().filter(m => !m.isDraft());
       if (!msgs.some(m => (m.getSubject() + '\n' + m.getPlainBody()).includes(bill))) continue;
-      const customer = msgs.filter(m => {
+      const hasCustomer = msgs.some(m => {
         const from = m.getFrom();
         const address = (from.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [''])[0].toLowerCase();
         return address && address !== ICEGATE_SENDER && !own.includes(address) && !/no-?reply/i.test(address);
       });
-      if (!customer.length) continue;
-      candidates.push({id:thread.getId(),count:msgs.length,time:thread.getLastMessageDate().getTime(),parent:customer[customer.length-1].getId()});
+      if (!hasCustomer) continue;
+      candidates.push({id:thread.getId(),count:msgs.length,time:thread.getLastMessageDate().getTime()});
     }
   } while (batch.length === 100);
   return chooseThread(candidates);
@@ -111,20 +117,26 @@ function api_(method, path, data, allowMissing) {
 }
 function rawDraft_(id) { return api_('get', 'drafts/' + encodeURIComponent(id) + '?format=raw', null, true); }
 function hash_(str) { return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, str)); }
+function fileHash_(file) { return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, file.getBytes())); }
 function attachments_(items) {
   const result = [];
   for (const item of items) {
     const msg = GmailApp.getMessageById(item.id);
     if (!msg) throw new Error('Source email no longer exists');
-    const file = msg.getAttachments({includeInlineImages:false}).find(a => a.getName() === item.name);
-    if (!file) throw new Error('Source attachment no longer exists');
+    const files = msg.getAttachments({includeInlineImages:false});
+    const matches = files.filter(a => a.getName() === item.name);
+    const file = item.index === undefined ? (matches.length === 1 ? matches[0] : null) : files[item.index];
+    if (!file || file.getName() !== item.name || (item.hash && fileHash_(file) !== item.hash)) throw new Error('Source attachment missing, changed or ambiguous');
     result.push(file);
   }
   return result;
 }
-function newDraft_(parentId, items, files) {
-  const parent = GmailApp.getMessageById(parentId);
-  if (!parent) throw new Error('Customer message no longer exists');
+function newDraft_(threadId, items, files) {
+  const thread = GmailApp.getThreadById(threadId);
+  if (!thread) throw new Error('Customer conversation no longer exists');
+  const messages = thread.getMessages().filter(message => !message.isDraft());
+  const parent = messages[messages.length - 1];
+  if (!parent) throw new Error('Customer conversation has no messages');
   const bills = [...new Set(items.map(x => x.bill))];
   const body = 'Dear Sir,\n\nPlease find attached the LEO and/or eGatepass copies for shipping bill(s): ' + bills.join(', ') + '.\n\nThanks.';
   return parent.createDraftReplyAll(body, {attachments:files || attachments_(items)}).getId();
@@ -135,20 +147,18 @@ function unsentFiles_(threadId, files) {
   if (!thread) throw new Error('Customer conversation no longer exists');
   const names = new Set(files.map(f => f.getName()));
   const sentHashes = new Set(), sentNames = new Set();
-  const fingerprint = file => Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, file.getBytes()));
   for (const message of thread.getMessages()) {
     if (message.isDraft()) continue;
     const address = (message.getFrom().match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0];
     if (!address || !own.includes(address.toLowerCase())) continue;
     for (const sent of message.getAttachments({includeInlineImages:false})) {
-      if (names.has(sent.getName())) { sentNames.add(sent.getName()); sentHashes.add(sent.getName() + ':' + fingerprint(sent)); }
+      if (names.has(sent.getName())) { sentNames.add(sent.getName()); sentHashes.add(sent.getName() + ':' + fileHash_(sent)); }
     }
   }
-  return files.map(file => !sentNames.has(file.getName()) || !sentHashes.has(file.getName() + ':' + fingerprint(file)));
+  return files.map(file => !sentNames.has(file.getName()) || !sentHashes.has(file.getName() + ':' + fileHash_(file)));
 }
-function alreadySent_(threadId, attachment) { return !unsentFiles_(threadId, [attachment])[0]; }
 function handleMessage_(msg, info, props, testIgnoreSent) {
-  const pdfs = msg.getAttachments({includeInlineImages:false}).filter(a => /\.pdf$/i.test(a.getName()) && a.getName().startsWith(info.bill + info.date));
+  const pdfs = msg.getAttachments({includeInlineImages:false}).map((file,index) => ({file,index})).filter(x => /\.pdf$/i.test(x.file.getName()) && x.file.getName().startsWith(info.bill + info.date));
   if (!pdfs.length) throw new Error('No PDF matching bill and date');
   const mappingKey = 'bill-' + info.bill + '-' + info.date;
   const found = JSON.parse(props.getProperty(mappingKey) || 'null') || findCustomer_(info.bill);
@@ -159,10 +169,10 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
   if (!current || hash_(current.message.raw) !== state.hash) state = null;
   const priorItems = state ? state.items : [];
   const priorFiles = state ? attachments_(priorItems) : [];
-  const allFiles = priorFiles.concat(pdfs);
+  const allFiles = priorFiles.concat(pdfs.map(x => x.file));
   const keep = testIgnoreSent ? allFiles.map(() => true) : unsentFiles_(found.id, allFiles);
-  const incoming = pdfs.map((a,i) => ({file:a,keep:keep[priorFiles.length+i],item:{id:msg.getId(),name:a.getName(),bill:info.bill,type:info.type}})).filter(x => x.keep);
-  if (!incoming.length) {
+  const incoming = pdfs.map((x,i) => ({file:x.file,keep:keep[priorFiles.length+i],item:{id:msg.getId(),name:x.file.getName(),index:x.index,hash:fileHash_(x.file),bill:info.bill,type:info.type}})).filter(x => x.keep);
+  if (!incoming.length && !state) {
     found.updatedAt = Date.now();
     props.setProperty(mappingKey, JSON.stringify(found));
     console.log('Already sent in customer conversation: SB ' + info.bill + ' ' + info.type);
@@ -170,12 +180,15 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
   }
   if (state) {
     const keptPrior = priorItems.map((item,i) => ({item,file:priorFiles[i]})).filter((_,i) => keep[i]);
-    const digest = f => Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, f.getBytes()));
-    const added = incoming.filter(x => !keptPrior.some(y => x.item.name === y.item.name && (x.item.id === y.item.id || digest(x.file) === digest(y.file))));
-    if (!added.length) return;
+    const added = incoming.filter(x => !keptPrior.some(y => x.item.name === y.item.name && x.item.hash === (y.item.hash || fileHash_(y.file))));
+    if (!added.length && keptPrior.length === priorItems.length) return;
     const items = keptPrior.map(x=>x.item).concat(added.map(x=>x.item));
     const files = keptPrior.map(x=>x.file).concat(added.map(x=>x.file));
-    const tempId = newDraft_(state.parent, items, files);
+    if (!items.length) {
+      console.log('All files in the existing draft were sent separately; review the draft for SB ' + info.bill);
+      return;
+    }
+    const tempId = newDraft_(found.id, items, files);
     try {
       const replacement = rawDraft_(tempId);
       const latest = rawDraft_(state.draft);
@@ -187,10 +200,10 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
     } finally { api_('delete', 'drafts/' + encodeURIComponent(tempId), null, true); }
   } else {
     const items = incoming.map(x=>x.item);
-    const draftId = newDraft_(found.parent, items, incoming.map(x=>x.file));
+    const draftId = newDraft_(found.id, items, incoming.map(x=>x.file));
     current = rawDraft_(draftId);
     if (!current || current.message.threadId !== found.id) throw new Error('New draft is not in expected thread');
-    state = {draft:draftId,parent:found.parent,items:items,hash:hash_(current.message.raw)};
+    state = {draft:draftId,items:items,hash:hash_(current.message.raw)};
   }
   state.updatedAt = Date.now();
   found.updatedAt = state.updatedAt;

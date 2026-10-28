@@ -1,0 +1,11 @@
+const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
+const now=Date.now(), store={'icegate-start':String(now-3600000),'icegate-pending':JSON.stringify({deleted:now-1,transient:now-1,good:now-1})};
+const props={getProperty:k=>store[k]||null,getProperties:()=>({...store}),setProperty:(k,v)=>{store[k]=v},deleteProperty:k=>{delete store[k]}};
+const ctx={PropertiesService:{getScriptProperties:()=>props},GmailApp:{getMessageById:id=>{if(id!=='good') throw Error('unavailable');return {getDate:()=>new Date(now),getFrom:()=> 'noreply@icegate.gov.in',getSubject:()=> 'Electronic Final LEO copy of SB for Shipping Bill No1234567Dt01012026'};}},console};
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(__dirname+'/Code.gs','utf8'),ctx);
+ctx.api_=(_,path)=>path.startsWith('messages?')?{}:path.includes('/deleted?')?null:{};
+let handled=0;ctx.handleMessage_=()=>handled++;
+ctx.processNewIcegate_();
+const pending=JSON.parse(store['icegate-pending']);
+assert.equal(handled,1); assert.equal(pending.deleted,undefined); assert.ok(pending.transient>now); assert.equal(pending.good,undefined);
+console.log('Deleted and temporarily unavailable messages do not block other pending messages');

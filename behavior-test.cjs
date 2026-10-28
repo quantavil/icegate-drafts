@@ -10,7 +10,7 @@ const ctx = {
   Utilities: {DigestAlgorithm: {SHA_256:'sha256'}, computeDigest: (_,bytes) => [...crypto.createHash('sha256').update(Buffer.from(bytes)).digest()], base64Encode: bytes => Buffer.from(bytes).toString('base64')},
 };
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(__dirname+'/Code.gs','utf8'),ctx);
-assert.equal(ctx.alreadySent_('thread', file('same.pdf','abc')),true);
-assert.equal(ctx.alreadySent_('thread', file('same.pdf','changed')),false);
-assert.equal(ctx.alreadySent_('thread', file('other.pdf','abc')),false);
+assert.equal(ctx.unsentFiles_('thread', [file('same.pdf','abc')])[0],false);
+assert.equal(ctx.unsentFiles_('thread', [file('same.pdf','changed')])[0],true);
+assert.equal(ctx.unsentFiles_('thread', [file('other.pdf','abc')])[0],true);
 console.log('Sent attachment detection passed');

@@ -4,13 +4,13 @@ Open the Apps Script project named “ICEGATE shipment drafts” in the account 
 
 ## How it works
 
-The `checkIcegate` trigger runs every minute, but processes mail only from **10:00 to 22:00 India time**. Mail received outside that window is processed when the window opens. It considers mail received after the automation was installed, not the old inbox.
+The `checkIcegate` trigger runs every minute, but processes mail only from **11:00 to 22:00 India time**. Mail received outside that window is processed when the window opens. It considers mail received after the automation was installed, not the old inbox.
 
-It matches ICEGATE LEO and eGatepass subjects and PDF filenames to shipping bill numbers and dates, finds customer conversations containing the number, and picks the conversation with the most messages (then the most recent). It creates a reply draft and groups later documents for the same conversation into it. **You review the recipients and attachments and send it.** The script never sends the email.
+It matches ICEGATE LEO and eGatepass subjects and PDF filenames to shipping bill numbers and dates, finds customer conversations containing the number, and picks the conversation with the most messages (then the most recent). It creates a reply-all draft to the latest non-draft message in that conversation and groups later documents for the same conversation into it. **You review the recipients and attachments and send it.** The script never sends the email.
 
-Before adding a file, the script checks whether a file with the same name and contents was already sent by this account in the selected conversation. If its managed draft was sent or deleted, a later document starts a new draft. When updating an unchanged draft, it removes files that were sent separately. It cannot recognize files sent into another conversation or immediately remove a file from a draft after a separate manual send; the next incoming document triggers another check.
+Before adding a file, the script checks whether a file with the same name and contents was already sent by this account in the selected conversation. If its managed draft was sent or deleted, a later document starts a new draft. When updating an unchanged draft, it removes files that were sent separately. It cannot recognize files sent into another conversation or immediately remove a file from a draft after a separate manual send; the next incoming document triggers another check. If every file in a draft has already been sent separately, the script leaves the draft for you to review rather than deleting it.
 
-If a managed draft has changed, the script creates a separate draft for the new attachment instead of intentionally replacing the edit. A simultaneous edit can still race with an update. Inactive bill and draft tracking records expire after 30 days; a later document can start a fresh draft.
+If a managed draft has changed, the script creates a separate draft for the new attachment instead of intentionally replacing the edit. A simultaneous edit can still race with an update. Inactive bill and draft tracking records expire after 30 days; a later document can start a fresh draft. If a draft is created or updated but saving its tracking state fails, a retry may produce an extra draft; review duplicates if execution errors occur.
 
 ## Set up
 
@@ -32,7 +32,7 @@ To stop the automation, run `stopAutomation` in the project editor or delete the
 - `Code.gs`: Apps Script source, also saved in the online project.
 - `AGENTS.md`: maintenance instructions and safety boundaries.
 - `rules.cjs` and `test.cjs`: matching and scheduling rule checks. Keep the copied rules in sync with `Code.gs`.
-- `behavior-test.cjs`, `customer-test.cjs`, `draft-flow-test.cjs`, `poll-test.cjs`: local checks for sent files, later documents and efficient polling.
+- `*-test.cjs`: local checks for customer matching, reply selection, attachments, polling and recovery.
 
 Run the local checks with:
 
@@ -43,6 +43,10 @@ node behavior-test.cjs
 node customer-test.cjs
 node draft-flow-test.cjs
 node poll-test.cjs
+node latest-reply-test.cjs
+node stale-attachments-test.cjs
+node poll-failure-test.cjs
+node duplicate-filenames-test.cjs
 ```
 
 `testPollReadOnly` tests the ICEGATE search without changing mail. Check the project's **Executions** page after tests and after changing the online code.

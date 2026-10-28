@@ -10,6 +10,7 @@ ctx.rawDraft_=id=>id==='sent-draft'?null:{message:{threadId:'thread',raw:'new'}}
 ctx.unsentFiles_=(_,files)=>files.map(()=>true);
 ctx.newDraft_=(_,items)=>{created=items;return 'new-draft'};
 ctx.hash_=()=>'hash';
+ctx.fileHash_=()=>'file-hash';
 ctx.handleMessage_(msg,info,props);
 assert.equal(created.length,1); assert.equal(created[0].id,'gate-message');
 assert.equal(JSON.parse(saved['icegate-thread-thread']).draft,'new-draft');
