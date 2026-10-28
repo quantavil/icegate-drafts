@@ -138,7 +138,8 @@ function newDraft_(threadId, items, files) {
   const parent = messages[messages.length - 1];
   if (!parent) throw new Error('Customer conversation has no messages');
   const bills = [...new Set(items.map(x => x.bill))];
-  const body = 'Dear Sir,\n\nPlease find attached the LEO and/or eGatepass copies for shipping bill(s): ' + bills.join(', ') + '.\n\nThanks.';
+  const types = [items.some(x => x.type === 'LEO') && 'LEO', items.some(x => x.type === 'Gatepass') && 'eGatepass'].filter(Boolean).join(' and ');
+  const body = 'Dear Sir,\n\nPlease find attached the ' + types + ' copies for shipping bill(s): ' + bills.join(', ') + '.\n\nThanks.';
   return parent.createDraftReplyAll(body, {attachments:files || attachments_(items)}).getId();
 }
 function unsentFiles_(threadId, files) {
