@@ -144,7 +144,8 @@ function newDraft_(threadId, items, files) {
   const attribution = 'On ' + Utilities.formatDate(parent.getDate(), 'Asia/Kolkata', 'dd MMM yyyy, HH:mm') + ', ' + parent.getFrom() + ' wrote:';
   const quotedText = parent.getPlainBody().replace(/\r\n?/g, '\n').split('\n').map(line => '> ' + line).join('\n');
   const htmlBody = '<div>' + escapeHtml(body).replace(/\n/g, '<br>') + '</div><br><div class="gmail_quote"><div>' + escapeHtml(attribution) + '</div><blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">' + parent.getBody() + '</blockquote></div>';
-  return parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:htmlBody,attachments:files || attachments_(items)}).getId();
+  const safeHtml = htmlBody.replace(/[^\x00-\x7f]/gu, character => '&#' + character.codePointAt(0) + ';');
+  return parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:safeHtml,attachments:files || attachments_(items)}).getId();
 }
 function unsentFiles_(threadId, files) {
   const own = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases()).map(x => x.toLowerCase());
