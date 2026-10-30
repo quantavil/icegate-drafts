@@ -88,21 +88,51 @@ function processNewIcegate_() {
 }
 function findCustomer_(bill) {
   const own = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases()).map(x => x.toLowerCase());
+  const usableSender = message => {
+    const address = (message.getFrom().match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [''])[0].toLowerCase();
+    return address && address !== ICEGATE_SENDER && !/no-?reply/i.test(address);
+  };
+  const billPattern = new RegExp('(^|[^0-9])' + bill + '(?![0-9])');
   let offset = 0, batch; const candidates = [];
   do {
-    batch = GmailApp.search('"' + bill + '" -in:trash -in:spam', offset, 100); offset += batch.length;
+    batch = GmailApp.search('"' + bill + '" newer_than:3m -in:trash -in:spam', offset, 100); offset += batch.length;
     for (const thread of batch) {
       const msgs = thread.getMessages().filter(m => !m.isDraft());
-      if (!msgs.some(m => (m.getSubject() + '\n' + m.getPlainBody()).includes(bill))) continue;
+      if (!msgs.some(m => usableSender(m) && billPattern.test(m.getSubject() + '\n' + m.getPlainBody()))) continue;
       const hasCustomer = msgs.some(m => {
-        const from = m.getFrom();
-        const address = (from.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [''])[0].toLowerCase();
-        return address && address !== ICEGATE_SENDER && !own.includes(address) && !/no-?reply/i.test(address);
+        const address = usableSender(m);
+        return address && !own.includes(address);
       });
       if (!hasCustomer) continue;
       candidates.push({id:thread.getId(),count:msgs.length,time:thread.getLastMessageDate().getTime()});
     }
   } while (batch.length === 100);
+  if (candidates.length) return chooseThread(candidates);
+
+  // Search individual messages so a match cannot come solely from an unrelated
+  // ICEGATE message elsewhere in the conversation. Gmail does not expose which
+  // part of a message matched; a filename may also be responsible for a hit.
+  const query = '"' + bill + '" filename:pdf newer_than:3m -in:trash -in:spam -is:draft';
+  const seen = new Set(); let pageToken;
+  do {
+    const path = 'messages?maxResults=100&q=' + encodeURIComponent(query) + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const page = api_('get', path);
+    for (const result of (page.messages || [])) {
+      const msg = GmailApp.getMessageById(result.id);
+      if (msg.isDraft()) continue;
+      if (!usableSender(msg)) continue;
+      const thread = msg.getThread(), id = thread.getId();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const msgs = thread.getMessages().filter(m => !m.isDraft());
+      if (!msgs.some(m => {
+        const from = usableSender(m);
+        return from && !own.includes(from);
+      })) continue;
+      candidates.push({id, count:msgs.length, time:thread.getLastMessageDate().getTime()});
+    }
+    pageToken = page.nextPageToken;
+  } while (pageToken);
   return chooseThread(candidates);
 }
 function api_(method, path, data, allowMissing) {
@@ -139,7 +169,7 @@ function newDraft_(threadId, items, files) {
   if (!parent) throw new Error('Customer conversation has no messages');
   const bills = [...new Set(items.map(x => x.bill))];
   const types = [items.some(x => x.type === 'LEO') && 'LEO', items.some(x => x.type === 'Gatepass') && 'eGatepass'].filter(Boolean).join(' and ');
-  const body = 'Dear Sir,\n\nPlease find attached the ' + types + ' copies for shipping bill(s): ' + bills.join(', ') + '.\n\nThanks.';
+  const body = 'Dear Sir,\n\nPlease find attached the ' + types + ' copy(s) for shipping bill(s): ' + bills.join(', ') + '.\n\nThanks.';
   const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const attribution = 'On ' + Utilities.formatDate(parent.getDate(), 'Asia/Kolkata', 'dd MMM yyyy, HH:mm') + ', ' + parent.getFrom() + ' wrote:';
   const quotedText = parent.getPlainBody().replace(/\r\n?/g, '\n').split('\n').map(line => '> ' + line).join('\n');
