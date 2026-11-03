@@ -5,6 +5,7 @@ const messages = [message('customer'), message('sent'), message('existing-draft'
 const ctx = {Utilities:{formatDate:()=> 'date'}, GmailApp: {getThreadById: () => ({getMessages: () => messages})}};
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(__dirname + '/Code.gs', 'utf8'), ctx);
+ctx.fixReplyRecipients_ = () => {};
 assert.equal(ctx.newDraft_('thread', [{bill: '1234567'}], []), 'draft');
 assert.equal(repliedTo, 'sent');
 messages.splice(2, 0, message('new-customer'));

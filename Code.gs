@@ -175,7 +175,43 @@ function newDraft_(threadId, items, files) {
   const quotedText = parent.getPlainBody().replace(/\r\n?/g, '\n').split('\n').map(line => '> ' + line).join('\n');
   const htmlBody = '<div>' + escapeHtml(body).replace(/\n/g, '<br>') + '</div><br><div class="gmail_quote"><div>' + escapeHtml(attribution) + '</div><blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">' + parent.getBody() + '</blockquote></div>';
   const safeHtml = htmlBody.replace(/[^\x00-\x7f]/gu, character => '&#' + character.codePointAt(0) + ';');
-  return parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:safeHtml,attachments:files || attachments_(items)}).getId();
+  const draftId = parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:safeHtml,attachments:files || attachments_(items)}).getId();
+  // The draft exists now: a failure here must not make the caller retry and create another one.
+  try { fixReplyRecipients_(draftId, parent); } catch (err) { console.error('Could not correct draft recipients: ' + err.message); }
+  return draftId;
+}
+function addresses_(text) { return (text || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []; }
+// Reply-all to a message we sent addresses the draft to ourselves and moves the customer to Cc.
+// Rebuild the recipients from the parent: our sent mail keeps its To/Cc, customer mail goes to the sender.
+function replyRecipients_(parent, own) {
+  const uniq = list => [...new Set(list.map(x => x.toLowerCase()))].filter(x => !own.includes(x));
+  const fromSelf = own.includes((addresses_(parent.getFrom())[0] || '').toLowerCase());
+  const to = uniq(fromSelf ? addresses_(parent.getTo()) : addresses_(parent.getReplyTo() || parent.getFrom()));
+  const cc = uniq(addresses_(parent.getCc()).concat(fromSelf ? [] : addresses_(parent.getTo()))).filter(x => !to.includes(x));
+  return {to, cc};
+}
+function setRecipients_(header, to, cc) {
+  const eol = header.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  const rest = header.replace(/^(?:To|Cc):[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*(?:\r?\n|$)/gim, '').replace(/(?:\r?\n)+$/, '');
+  return 'To: ' + to.join(', ') + eol + (cc.length ? 'Cc: ' + cc.join(', ') + eol : '') + rest;
+}
+function fixReplyRecipients_(draftId, parent) {
+  const own = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases()).map(x => x.toLowerCase());
+  const draft = rawDraft_(draftId);
+  if (!draft) throw new Error('Draft no longer exists');
+  const bytes = Utilities.base64DecodeWebSafe(draft.message.raw);
+  let split = -1;
+  for (let i = 0; i + 3 < bytes.length && split < 0; i++) {
+    if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) split = i;
+  }
+  if (split < 0) throw new Error('Draft has no header block');
+  const header = Utilities.newBlob(bytes.slice(0, split)).getDataAsString();
+  const current = /^To:([^\r\n]*(?:\r?\n[ \t][^\r\n]*)*)/im.exec(header);
+  if (!current || !addresses_(current[1]).some(x => own.includes(x.toLowerCase()))) return;
+  const wanted = replyRecipients_(parent, own);
+  if (!wanted.to.length) return;
+  const raw = Utilities.newBlob(setRecipients_(header, wanted.to, wanted.cc)).getBytes().concat(bytes.slice(split));
+  api_('put', 'drafts/' + encodeURIComponent(draftId), {message:{threadId:draft.message.threadId,raw:Utilities.base64EncodeWebSafe(raw)}});
 }
 function unsentFiles_(threadId, files) {
   const own = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases()).map(x => x.toLowerCase());
