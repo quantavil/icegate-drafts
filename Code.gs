@@ -175,7 +175,37 @@ function newDraft_(threadId, items, files) {
   const quotedText = parent.getPlainBody().replace(/\r\n?/g, '\n').split('\n').map(line => '> ' + line).join('\n');
   const htmlBody = '<div>' + escapeHtml(body).replace(/\n/g, '<br>') + '</div><br><div class="gmail_quote"><div>' + escapeHtml(attribution) + '</div><blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">' + parent.getBody() + '</blockquote></div>';
   const safeHtml = htmlBody.replace(/[^\x00-\x7f]/gu, character => '&#' + character.codePointAt(0) + ';');
-  return parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:safeHtml,attachments:files || attachments_(items)}).getId();
+  const draftId = parent.createDraftReplyAll(body + '\n\n' + attribution + '\n' + quotedText, {htmlBody:safeHtml,attachments:files || attachments_(items)}).getId();
+  // The draft exists now: a failure here must not make the caller retry and create another one.
+  try { addSelfToRecipients_(draftId); } catch (err) { console.error('Could not add own address to To: ' + err.message); }
+  return draftId;
+}
+// Adds email to the To header of a raw MIME header block unless it is already listed there.
+function addToRecipient_(header, email) {
+  const eol = header.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  const match = /^To:([^\r\n]*(?:\r?\n[ \t][^\r\n]*)*)/im.exec(header);
+  if (!match) return 'To: ' + email + eol + header;
+  const value = match[1].replace(/\r?\n/g, ' ').trim();
+  const listed = (value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(x => x.toLowerCase());
+  if (listed.includes(email.toLowerCase())) return header;
+  const end = match.index + match[0].length;
+  if (!value) return header.slice(0, match.index) + 'To: ' + email + header.slice(end);
+  return header.slice(0, end) + ', ' + email + header.slice(end);
+}
+function addSelfToRecipients_(draftId) {
+  const draft = rawDraft_(draftId);
+  if (!draft) throw new Error('Draft no longer exists');
+  const bytes = Utilities.base64DecodeWebSafe(draft.message.raw);
+  let split = -1;
+  for (let i = 0; i + 3 < bytes.length && split < 0; i++) {
+    if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) split = i;
+  }
+  if (split < 0) throw new Error('Draft has no header block');
+  const header = Utilities.newBlob(bytes.slice(0, split)).getDataAsString();
+  const updated = addToRecipient_(header, Session.getEffectiveUser().getEmail());
+  if (updated === header) return;
+  const raw = Utilities.newBlob(updated).getBytes().concat(bytes.slice(split));
+  api_('put', 'drafts/' + encodeURIComponent(draftId), {message:{threadId:draft.message.threadId,raw:Utilities.base64EncodeWebSafe(raw)}});
 }
 function unsentFiles_(threadId, files) {
   const own = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases()).map(x => x.toLowerCase());
@@ -192,6 +222,9 @@ function unsentFiles_(threadId, files) {
     }
   }
   return files.map(file => !sentNames.has(file.getName()) || !sentHashes.has(file.getName() + ':' + fileHash_(file)));
+}
+function markRead_(msg) {
+  try { msg.markRead(); } catch (err) { console.error('Could not mark ICEGATE message as read: ' + err.message); }
 }
 function handleMessage_(msg, info, props, testIgnoreSent) {
   const pdfs = msg.getAttachments({includeInlineImages:false}).map((file,index) => ({file,index})).filter(x => /\.pdf$/i.test(x.file.getName()) && x.file.getName().startsWith(info.bill + info.date));
@@ -214,11 +247,10 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
     console.log('Already sent in customer conversation: SB ' + info.bill + ' ' + info.type);
     return;
   }
-  let created = false;
   if (state) {
     const keptPrior = priorItems.map((item,i) => ({item,file:priorFiles[i]})).filter((_,i) => keep[i]);
     const added = incoming.filter(x => !keptPrior.some(y => x.item.name === y.item.name && x.item.hash === (y.item.hash || fileHash_(y.file))));
-    if (!added.length && keptPrior.length === priorItems.length) return;
+    if (!added.length && keptPrior.length === priorItems.length) { markRead_(msg); return; }
     const items = keptPrior.map(x=>x.item).concat(added.map(x=>x.item));
     const files = keptPrior.map(x=>x.file).concat(added.map(x=>x.file));
     if (!items.length) {
@@ -241,15 +273,12 @@ function handleMessage_(msg, info, props, testIgnoreSent) {
     current = rawDraft_(draftId);
     if (!current || current.message.threadId !== found.id) throw new Error('New draft is not in expected thread');
     state = {draft:draftId,items:items,hash:hash_(current.message.raw)};
-    created = true;
   }
   state.updatedAt = Date.now();
   found.updatedAt = state.updatedAt;
   props.setProperty(stateKey, JSON.stringify(state));
   props.setProperty(mappingKey, JSON.stringify(found));
-  if (created) {
-    try { msg.markRead(); } catch (err) { console.error('Could not mark ICEGATE message as read: ' + err.message); }
-  }
+  markRead_(msg);
   console.log('Prepared ' + info.type + ' for SB ' + info.bill + ' in customer conversation');
 }
 function testPollReadOnly() {

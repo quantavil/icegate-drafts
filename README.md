@@ -6,7 +6,7 @@ Open the Apps Script project named “ICEGATE shipment drafts” in the account 
 
 The `checkIcegate` trigger runs every minute, but processes mail only from **11:00 to 22:00 India time**. Mail received outside that window is processed when the window opens. It considers mail received after the automation was installed, not the old inbox.
 
-It matches ICEGATE LEO and eGatepass subjects and PDF filenames to shipping bill numbers and dates, finds customer conversations containing the number, and picks the conversation with the most messages (then the most recent). It creates a reply-all draft to the latest non-draft message in that conversation and groups later documents for the same conversation into it. The draft text names the document types actually attached using “copy(s)” and quotes the latest message beneath it, including any earlier conversation already quoted in that message. When a new draft is created, its ICEGATE source email is marked as read; a later email that only updates the draft is not marked as read. **You review the recipients and attachments and send it.** The script never sends the email.
+It matches ICEGATE LEO and eGatepass subjects and PDF filenames to shipping bill numbers and dates, finds customer conversations containing the number, and picks the conversation with the most messages (then the most recent). It creates a reply-all draft to the latest non-draft message in that conversation and groups later documents for the same conversation into it. The draft text names the document types actually attached using “copy(s)” and quotes the latest message beneath it, including any earlier conversation already quoted in that message. Your own account address is added to the draft's To line (once). Each ICEGATE source email is marked as read when its files are attached, whether that creates a draft or adds to an existing one (for example, a LEO and then its eGatepass). **You review the recipients and attachments and send it.** The script never sends the email.
 
 Customer searches are restricted to the last three months. In the normal search, the bill number must appear as a complete number in the subject or body of a message that is not from ICEGATE or another no-reply address. If that finds no customer conversation, the script searches Gmail for individual matching messages with PDF attachments in that same period. Gmail does not say whether the number matched PDF text or another indexed field such as a filename, and may not index every PDF; review the chosen conversation carefully.
 
@@ -50,6 +50,7 @@ node draft-body-test.cjs
 node stale-attachments-test.cjs
 node poll-failure-test.cjs
 node duplicate-filenames-test.cjs
+node self-recipient-test.cjs
 ```
 
 `testPollReadOnly` tests the ICEGATE search without changing mail. Check the project's **Executions** page after tests and after changing the online code.
